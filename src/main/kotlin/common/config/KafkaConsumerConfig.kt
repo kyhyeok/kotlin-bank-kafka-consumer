@@ -2,6 +2,7 @@ package common.config
 
 
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
+import common.interfaces.Handler
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.slf4j.Logger
@@ -9,6 +10,10 @@ import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.kafka.annotation.EnableKafka
+import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory
+import org.springframework.kafka.listener.AcknowledgingMessageListener
+import org.springframework.kafka.listener.ContainerProperties
 
 @Configuration
 @EnableKafka
@@ -37,8 +42,34 @@ class KafkaConsumerConfig(
         props[ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG] = StringDeserializer::class.java
         props[ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG] = JsonDeserialize::class.java
 
-
-
         return props
+    }
+
+    private fun createKafkaListenerContainerFactory(
+        topicName: String,
+        handler: Handler,
+        properties: TopicProperties,
+    ): ConcurrentKafkaListenerContainerFactory<String, Any> {
+        val config = consumerConfigs().toMutableMap()
+        config[ConsumerConfig.MAX_POLL_RECORDS_CONFIG] = properties.maxPollRecords
+
+        val factory = ConcurrentKafkaListenerContainerFactory<String, Any>()
+
+        factory.consumerFactory = DefaultKafkaConsumerFactory<String, Any>(config)
+        factory.containerProperties.ackMode = ContainerProperties.AckMode.MANUAL
+        factory.setAutoStartup(true)
+        factory.containerProperties.pollTimeout = properties.pollingInterval
+
+        val container = factory.createContainer(topicName)
+
+        container.setupMessageListener(AcknowledgingMessageListener { record, acknowledgement ->
+            try {
+                handler.handle(record, acknowledgement)
+            } catch (e: Exception) {
+                handler.handleDLQ(record, acknowledgement)
+            }
+        })
+        
+        return factory
     }
 }
