@@ -10,4 +10,5 @@ enum class ErrorCode(
     override var message: String
 ) : CodeInterface {
     FAILED_TO_CONNECT_MONGO(-100, "failed to connect mongo"),
+    FAILED_TO_FIND_TOPIC_HANDLER(-101, "failed to find topic handler"),
 }

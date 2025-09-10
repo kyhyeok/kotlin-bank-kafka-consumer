@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import common.interfaces.Handler
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
+import org.bank.common.exception.CustomException
+import org.bank.common.exception.ErrorCode
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Bean
@@ -35,7 +37,8 @@ class KafkaConsumerConfig(
 
         // config value
         props[ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG] = topicConfig.info.bootstrapServers // 연결하고자 하는 서버 url
-        props[ConsumerConfig.AUTO_OFFSET_RESET_CONFIG] = topicConfig.info.consumer.autoOffsetReset // 초기 로프셋 위치 설정 (earliest, latest, none)중 보통 earliest를 많이 적용
+        props[ConsumerConfig.AUTO_OFFSET_RESET_CONFIG] =
+            topicConfig.info.consumer.autoOffsetReset // 초기 로프셋 위치 설정 (earliest, latest, none)중 보통 earliest를 많이 적용
         props[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG] = topicConfig.info.consumer.autoCommit // auto commit
         props[ConsumerConfig.GROUP_ID_CONFIG] = topicConfig.info.consumer.groupId
 
@@ -45,31 +48,55 @@ class KafkaConsumerConfig(
         return props
     }
 
-    private fun createKafkaListenerContainerFactory(
-        topicName: String,
-        handler: Handler,
-        properties: TopicProperties,
-    ): ConcurrentKafkaListenerContainerFactory<String, Any> {
-        val config = consumerConfigs().toMutableMap()
-        config[ConsumerConfig.MAX_POLL_RECORDS_CONFIG] = properties.maxPollRecords
+    @Bean(name = ["factoryHandlerMapper"])
+    fun factoryHandlerMapper(): Map<String, ConcurrentKafkaListenerContainerFactory<String, Any>> {
+        val factoryMap = HashMap<String, ConcurrentKafkaListenerContainerFactory<String, Any>>()
 
-        val factory = ConcurrentKafkaListenerContainerFactory<String, Any>()
+        topicConfig.topics.forEach { (name, properties) ->
+            if (properties.enabled) {
+                val handler: Handler
 
-        factory.consumerFactory = DefaultKafkaConsumerFactory<String, Any>(config)
-        factory.containerProperties.ackMode = ContainerProperties.AckMode.MANUAL
-        factory.setAutoStartup(true)
-        factory.containerProperties.pollTimeout = properties.pollingInterval
+                when (name) {
+                    "transactions" -> handler =
+                    // 필요한 경우에 따라 핸들러 매핑
+                    else -> {
+                        throw CustomException(ErrorCode.FAILED_TO_FIND_TOPIC_HANDLER)
+                    }
+                }
 
-        val container = factory.createContainer(topicName)
-
-        container.setupMessageListener(AcknowledgingMessageListener { record, acknowledgement ->
-            try {
-                handler.handle(record, acknowledgement)
-            } catch (e: Exception) {
-                handler.handleDLQ(record, acknowledgement)
+                factoryMap[name] = createKafkaListenerContainerFactory(name, handler, properties)
             }
-        })
-        
-        return factory
+
+            return factoryMap
+
+        }
+
+
+        private fun createKafkaListenerContainerFactory(
+            topicName: String,
+            handler: Handler,
+            properties: TopicProperties,
+        ): ConcurrentKafkaListenerContainerFactory<String, Any> {
+            val config = consumerConfigs().toMutableMap()
+            config[ConsumerConfig.MAX_POLL_RECORDS_CONFIG] = properties.maxPollRecords
+
+            val factory = ConcurrentKafkaListenerContainerFactory<String, Any>()
+
+            factory.consumerFactory = DefaultKafkaConsumerFactory<String, Any>(config)
+            factory.containerProperties.ackMode = ContainerProperties.AckMode.MANUAL
+            factory.setAutoStartup(true)
+            factory.containerProperties.pollTimeout = properties.pollingInterval
+
+            val container = factory.createContainer(topicName)
+
+            container.setupMessageListener(AcknowledgingMessageListener { record, acknowledgement ->
+                try {
+                    handler.handle(record, acknowledgement)
+                } catch (e: Exception) {
+                    handler.handleDLQ(record, acknowledgement)
+                }
+            })
+
+            return factory
+        }
     }
-}
