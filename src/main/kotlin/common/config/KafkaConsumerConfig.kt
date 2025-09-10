@@ -1,6 +1,9 @@
 package common.config
 
+
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.common.serialization.StringDeserializer
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Bean
@@ -9,8 +12,9 @@ import org.springframework.kafka.annotation.EnableKafka
 
 @Configuration
 @EnableKafka
-class KafkaConsumer(
-    private val logger: Logger = LoggerFactory.getLogger(KafkaConsumer::class.java)
+class KafkaConsumerConfig(
+    private val topicConfig: TopicConfig,
+    private val logger: Logger = LoggerFactory.getLogger(KafkaConsumerConfig::class.java)
 ) {
     @Bean
     fun consumerConfigs(): Map<String, Any> {
@@ -25,13 +29,16 @@ class KafkaConsumer(
         props[ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG] = "3000" // healthcheck 전송 간격
 
         // config value
-        props[ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG] = "" // 연결하고자 하는 서버 url
-        props[ConsumerConfig.AUTO_OFFSET_RESET_CONFIG] = "" // 초기 로프셋 위치 설정 (earliest, latest, none)중 보통 earliest를 많이 적용
-        props[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG] = "" // auto commit
+        props[ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG] = topicConfig.info.bootstrapServers // 연결하고자 하는 서버 url
+        props[ConsumerConfig.AUTO_OFFSET_RESET_CONFIG] = topicConfig.info.consumer.autoOffsetReset // 초기 로프셋 위치 설정 (earliest, latest, none)중 보통 earliest를 많이 적용
+        props[ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG] = topicConfig.info.consumer.autoCommit // auto commit
+        props[ConsumerConfig.GROUP_ID_CONFIG] = topicConfig.info.consumer.groupId
+
+        props[ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG] = StringDeserializer::class.java
+        props[ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG] = JsonDeserialize::class.java
+
+
 
         return props
     }
-}
-
-class KafkaConsumerConfig {
 }
